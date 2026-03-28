@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { Search, MapPin, Star, CalendarCheck, Clock, CheckCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, MapPin, Star, CalendarCheck, Clock } from 'lucide-react';
+import { supabase } from '../supabaseClient';
 
-const initialDoctors = [
+const fallbackDoctors = [
   { id: 1, name: 'Dr. Priya Sharma', specialty: 'Cardiology', rating: 4.8, location: 'Hyderabad', available: true },
   { id: 2, name: 'Dr. Arjun Nair', specialty: 'Dermatology', rating: 4.5, location: 'Bangalore', available: false },
   { id: 3, name: 'Dr. Lakshmi Rao', specialty: 'Neurology', rating: 4.9, location: 'Chennai', available: true },
@@ -15,12 +16,50 @@ const specialties = ['All', 'Cardiology', 'Dermatology', 'Neurology', 'Orthopedi
 export default function DoctorSearch() {
   const [query, setQuery] = useState('');
   const [activeSpecialty, setActiveSpecialty] = useState('All');
-  const [doctors, setDoctors] = useState(initialDoctors);
-  const [bookingId, setBookingId] = useState(null); // ID of the doctor currently being booked
-  
-  const handleBook = (id) => {
+  const [doctors, setDoctors] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [bookingId, setBookingId] = useState(null);
+
+  useEffect(() => {
+    async function fetchDoctors() {
+      if (!supabase) {
+        console.warn("Supabase keys missing. Using fallback data.");
+        setDoctors(fallbackDoctors);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase.from('doctors').select('*');
+        if (error) throw error;
+        setDoctors(data || fallbackDoctors);
+      } catch (err) {
+        console.error('Error fetching doctors:', err.message);
+        setDoctors(fallbackDoctors);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchDoctors();
+  }, []);
+
+  const handleBook = async (id) => {
     setBookingId(id);
-    // Simulate API call
+    
+    if (supabase) {
+      try {
+        const { error } = await supabase
+          .from('doctors')
+          .update({ available: false })
+          .eq('id', id);
+        if (error) throw error;
+      } catch (err) {
+        console.error('Error updating doctor booking:', err.message);
+      }
+    }
+
+    // Always update local state for immediate feedback
     setTimeout(() => {
       setDoctors(docs => docs.map(d => d.id === id ? { ...d, available: false } : d));
       setBookingId(null);
@@ -39,6 +78,7 @@ export default function DoctorSearch() {
       <div className="page-header">
         <h1 className="page-title">Find a Doctor</h1>
         <p className="page-subtitle">Search, filter, and book appointments instantly.</p>
+        {!supabase && <p style={{color:'var(--warning)', marginTop:'1rem', fontSize:'0.9rem'}}>⚠️ Disconnected from Database. Using offline mode.</p>}
       </div>
 
       <div className="search-wrapper animate-slide-up">
@@ -64,7 +104,9 @@ export default function DoctorSearch() {
         ))}
       </div>
 
-      {filtered.length === 0 ? (
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '3rem' }}>Loading doctors...</div>
+      ) : filtered.length === 0 ? (
         <div className="empty-state animate-slide-up" style={{ animationDelay: '0.2s' }}>
           <Search size={48} />
           <h2>No doctors found</h2>

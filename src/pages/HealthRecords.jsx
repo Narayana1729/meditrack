@@ -1,43 +1,100 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FileText, FileImage, Download, Trash2, Plus, X } from 'lucide-react';
+import { supabase } from '../supabaseClient';
 
-const initialRecords = [
-  { id: 1, type: 'Blood Test', date: '2026-03-15', doctor: 'Dr. Priya Sharma', file: 'blood_test_march.pdf', fileType: 'pdf' },
-  { id: 2, type: 'X-Ray', date: '2026-02-10', doctor: 'Dr. Rahul Mehta', file: 'xray_feb.jpg', fileType: 'img' },
-  { id: 3, type: 'ECG', date: '2026-01-22', doctor: 'Dr. Arjun Nair', file: 'ecg_jan.pdf', fileType: 'pdf' },
+const fallbackRecords = [
+  { id: 1, type: 'Blood Test', date: '2026-03-15', doctor: 'Dr. Priya Sharma', file: 'blood_test_march.pdf', file_type: 'pdf' },
+  { id: 2, type: 'X-Ray', date: '2026-02-10', doctor: 'Dr. Rahul Mehta', file: 'xray_feb.jpg', file_type: 'img' },
+  { id: 3, type: 'ECG', date: '2026-01-22', doctor: 'Dr. Arjun Nair', file: 'ecg_jan.pdf', file_type: 'pdf' },
 ];
 
 export default function HealthRecords() {
-  const [records, setRecords] = useState(initialRecords);
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   
   // Form State
   const [newTitle, setNewTitle] = useState('');
   const [newDoctor, setNewDoctor] = useState('');
   const [newFile, setNewFile] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
 
-  const handleDelete = (id) => {
+  useEffect(() => {
+    async function fetchRecords() {
+      if (!supabase) {
+        setRecords(fallbackRecords);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase.from('health_records').select('*').order('date', { ascending: false });
+        if (error) throw error;
+        setRecords(data || fallbackRecords);
+      } catch (err) {
+        console.error('Error fetching records:', err.message);
+        setRecords(fallbackRecords);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchRecords();
+  }, []);
+
+  const handleDelete = async (id) => {
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('health_records').delete().eq('id', id);
+        if (error) throw error;
+      } catch (err) {
+        console.error('Error deleting record:', err.message);
+      }
+    }
     setRecords(records.filter(r => r.id !== id));
   };
 
-  const handleUpload = (e) => {
+  const handleUpload = async (e) => {
     e.preventDefault();
     if (!newTitle || !newDoctor || !newFile) return;
 
-    const newRecord = {
-      id: Date.now(),
+    setIsUploading(true);
+    const fileExtension = newFile.name?.split('.').pop();
+    const fileType = ['jpg', 'png', 'jpeg'].includes(fileExtension?.toLowerCase()) ? 'img' : 'pdf';
+    
+    // Simulate real upload or do Supabase Storage upload here
+    // For now we just save the record to the table
+    const newRecordObj = {
       type: newTitle,
       date: new Date().toISOString().split('T')[0],
       doctor: newDoctor,
       file: newFile.name || 'document.pdf',
-      fileType: newFile.name?.endsWith('jpg') || newFile.name?.endsWith('png') ? 'img' : 'pdf'
+      file_type: fileType
     };
 
-    setRecords([newRecord, ...records]);
-    setIsModalOpen(false);
+    if (supabase) {
+      try {
+        // Mock Storage URL since we don't have bucket setup yet
+        const { data, error } = await supabase
+          .from('health_records')
+          .insert([newRecordObj])
+          .select();
+        
+        if (error) throw error;
+        if (data && data.length > 0) newRecordObj.id = data[0].id;
+      } catch (err) {
+        console.error('Error uploading record to Supabase:', err.message);
+        newRecordObj.id = Date.now();
+      }
+    } else {
+      newRecordObj.id = Date.now();
+    }
+
+    setRecords([newRecordObj, ...records]);
     setNewTitle('');
     setNewDoctor('');
     setNewFile('');
+    setIsUploading(false);
+    setIsModalOpen(false);
   };
 
   return (
@@ -52,7 +109,9 @@ export default function HealthRecords() {
         </button>
       </div>
 
-      {records.length === 0 ? (
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '3rem' }}>Loading records...</div>
+      ) : records.length === 0 ? (
         <div className="empty-state animate-slide-up glass-card">
           <FileText size={48} />
           <h2>No records found</h2>
@@ -78,7 +137,7 @@ export default function HealthRecords() {
                 <tr key={r.id} style={{ animation: `fadeIn 0.3s ease ${i * 0.1}s forwards`, opacity: 0 }}>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 500 }}>
-                      {r.fileType === 'pdf' ? <FileText size={18} color="var(--primary)" /> : <FileImage size={18} color="var(--secondary)" />}
+                      {r.file_type === 'pdf' ? <FileText size={18} color="var(--primary)" /> : <FileImage size={18} color="var(--secondary)" />}
                       {r.type}
                     </div>
                   </td>
@@ -161,7 +220,9 @@ export default function HealthRecords() {
               
               <div className="modal-actions">
                 <button type="button" className="btn-secondary" onClick={() => setIsModalOpen(false)}>Cancel</button>
-                <button type="submit" className="btn-primary">Upload Document</button>
+                <button type="submit" className="btn-primary" disabled={isUploading}>
+                  {isUploading ? 'Uploading...' : 'Upload Document'}
+                </button>
               </div>
             </form>
           </div>
