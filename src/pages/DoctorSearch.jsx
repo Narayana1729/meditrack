@@ -53,17 +53,25 @@ export default function DoctorSearch() {
           .from('doctors')
           .update({ available: false })
           .eq('id', id);
+          
         if (error) throw error;
+        
+        // If Supabase update succeeds, explicitly update the local state.
+        setDoctors(docs => docs.map(d => d.id === id ? { ...d, available: false } : d));
+        
       } catch (err) {
         console.error('Error updating doctor booking:', err.message);
+        alert('Could not book appointment. Please check your connection.');
+      } finally {
+        setBookingId(null);
       }
+    } else {
+      // Offline fallback
+      setTimeout(() => {
+        setDoctors(docs => docs.map(d => d.id === id ? { ...d, available: false } : d));
+        setBookingId(null);
+      }, 1000);
     }
-
-    // Always update local state for immediate feedback
-    setTimeout(() => {
-      setDoctors(docs => docs.map(d => d.id === id ? { ...d, available: false } : d));
-      setBookingId(null);
-    }, 1500);
   };
 
   const filtered = doctors.filter(d => {
@@ -115,54 +123,67 @@ export default function DoctorSearch() {
       ) : (
         <div className="cards-grid">
           {filtered.map((doc, index) => (
-            <div 
-              className="glass-card doctor-card animate-slide-up" 
-              key={doc.id}
-              style={{ animationDelay: `${0.1 + (index * 0.05)}s` }}
-            >
-              <div className="doctor-header">
-                <div className="doctor-avatar">{doc.name.split(' ')[1][0]}</div>
-                <div className="doctor-info">
-                  <h3>{doc.name}</h3>
-                  <p><MapPin size={14} /> {doc.location}</p>
-                </div>
-              </div>
-              
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="badge neutral">{doc.specialty}</span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.9rem', fontWeight: 600 }}>
-                  <Star size={16} fill="#F59E0B" color="#F59E0B" /> {doc.rating}
-                </span>
-              </div>
-              
-              <div style={{ padding: '10px 0', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
-                <span className={`badge ${doc.available ? 'success' : 'warning'}`}>
-                  {doc.available ? (
-                    <><CalendarCheck size={14} /> Available Today</>
-                  ) : (
-                    <><Clock size={14} /> Next available in 2 days</>
-                  )}
-                </span>
-              </div>
-              
-              <button 
-                className="btn-primary" 
-                disabled={!doc.available || bookingId === doc.id}
-                onClick={() => handleBook(doc.id)}
-                style={{ width: '100%', marginTop: 'auto' }}
-              >
-                {bookingId === doc.id ? (
-                  <>Booking...</>
-                ) : !doc.available ? (
-                  'Unavailable'
-                ) : (
-                  'Book Appointment'
-                )}
-              </button>
-            </div>
+            <DoctorCard 
+              key={doc.id} 
+              doc={doc} 
+              index={index} 
+              isBooking={bookingId === doc.id} 
+              onBook={() => handleBook(doc.id)} 
+            />
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function DoctorCard({ doc, index, isBooking, onBook }) {
+  // Safe Avatar Extraction
+  const getAvatar = (name) => {
+    if (!name) return '?';
+    const parts = name.split(' ').filter(Boolean);
+    // If they have a first and last name, attempt to take the first letter of last name, otherwise first name.
+    return parts.length > 1 ? parts[1][0] : parts[0][0];
+  };
+
+  return (
+    <div 
+      className="glass-card doctor-card animate-slide-up" 
+      style={{ animationDelay: `${0.1 + (index * 0.05)}s` }}
+    >
+      <div className="doctor-header">
+        <div className="doctor-avatar">{getAvatar(doc.name)}</div>
+        <div className="doctor-info">
+          <h3>{doc.name}</h3>
+          <p><MapPin size={14} /> {doc.location}</p>
+        </div>
+      </div>
+      
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span className="badge neutral">{doc.specialty}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.9rem', fontWeight: 600 }}>
+          <Star size={16} fill="#F59E0B" color="#F59E0B" /> {doc.rating}
+        </span>
+      </div>
+      
+      <div style={{ padding: '10px 0', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
+        <span className={`badge ${doc.available ? 'success' : 'warning'}`}>
+          {doc.available ? (
+            <><CalendarCheck size={14} /> Available Today</>
+          ) : (
+            <><Clock size={14} /> Next available in 2 days</>
+          )}
+        </span>
+      </div>
+      
+      <button 
+        className="btn-primary" 
+        disabled={!doc.available || isBooking}
+        onClick={onBook}
+        style={{ width: '100%', marginTop: 'auto' }}
+      >
+        {isBooking ? 'Booking...' : (!doc.available ? 'Unavailable' : 'Book Appointment')}
+      </button>
     </div>
   );
 }

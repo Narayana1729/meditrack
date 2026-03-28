@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { Calendar, Clock, X, Plus } from 'lucide-react'
+import { supabase } from '../supabaseClient'
 
-const initialAppointments = [
+const fallbackAppointments = [
   { id: 1, doctor: 'Dr. Priya Sharma', specialty: 'Cardiology', date: '2026-04-02', time: '10:00 AM', status: 'Confirmed' },
   { id: 2, doctor: 'Dr. Arjun Nair', specialty: 'Dermatology', date: '2026-04-05', time: '2:30 PM', status: 'Pending' },
   { id: 3, doctor: 'Dr. Lakshmi Rao', specialty: 'Neurology', date: '2026-04-10', time: '11:00 AM', status: 'Confirmed' },
@@ -9,14 +11,44 @@ const initialAppointments = [
 ]
 
 export default function Appointments() {
-  const [appointments, setAppointments] = useState(initialAppointments)
-  const [tab, setTab] = useState('upcoming') // 'upcoming' | 'past'
+  const [appointments, setAppointments] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [tab, setTab] = useState('upcoming')
 
-  const cancelAppointment = (id) => {
-    if (confirm('Cancel this appointment?')) {
-      setAppointments(prev => prev.map(a => 
-        a.id === id ? { ...a, status: 'Cancelled' } : a
-      ))
+  useEffect(() => {
+    async function fetchAppointments() {
+      if (!supabase) {
+        setAppointments(fallbackAppointments)
+        setLoading(false)
+        return
+      }
+      try {
+        const { data, error } = await supabase.from('appointments').select('*').order('date', { ascending: true })
+        if (error) throw error
+        setAppointments(data?.length ? data : fallbackAppointments)
+      } catch (err) {
+        console.error('Error fetching appointments:', err.message)
+        setAppointments(fallbackAppointments)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchAppointments()
+  }, [])
+
+  const cancelAppointment = async (id) => {
+    if (!confirm('Cancel this appointment?')) return
+
+    setAppointments(prev => prev.map(a =>
+      a.id === id ? { ...a, status: 'Cancelled' } : a
+    ))
+
+    if (supabase) {
+      try {
+        await supabase.from('appointments').update({ status: 'Cancelled' }).eq('id', id)
+      } catch (err) {
+        console.error('Error cancelling:', err.message)
+      }
     }
   }
 
@@ -25,38 +57,36 @@ export default function Appointments() {
     return tab === 'upcoming' ? !isPast : isPast
   })
 
+  if (loading) {
+    return <div className="page" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>Loading appointments...</div>
+  }
+
   return (
     <div className="page">
-      <h1 className="page-title">📅 Appointments</h1>
+      <h1 className="page-title">Appointments</h1>
       <p className="page-subtitle">Manage your medical visits and history.</p>
 
       <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', alignItems: 'center' }}>
-        <button className="btn-primary" style={{ margin: 0 }}>+ Book New</button>
-        <div style={{ display: 'flex', background: 'var(--surface2)', borderRadius: 'var(--radius-sm)', padding: '0.2rem' }}>
-          <button 
+        <button className="btn-primary">
+          <Plus size={16} /> Book New
+        </button>
+        <div className="tab-group">
+          <button
+            className={`tab-btn ${tab === 'upcoming' ? 'active' : ''}`}
             onClick={() => setTab('upcoming')}
-            style={{ 
-              padding: '0.4rem 1rem', border: 'none', borderRadius: '4px', cursor: 'pointer',
-              background: tab === 'upcoming' ? 'var(--primary)' : 'transparent',
-              color: tab === 'upcoming' ? '#fff' : 'var(--text)'
-            }}
           >
-            Upcoming
+            <Calendar size={14} style={{ marginRight: '0.3rem' }} /> Upcoming
           </button>
-          <button 
+          <button
+            className={`tab-btn ${tab === 'past' ? 'active' : ''}`}
             onClick={() => setTab('past')}
-            style={{ 
-              padding: '0.4rem 1rem', border: 'none', borderRadius: '4px', cursor: 'pointer',
-              background: tab === 'past' ? 'var(--primary)' : 'transparent',
-              color: tab === 'past' ? '#fff' : 'var(--text)'
-            }}
           >
-            Past History
+            <Clock size={14} style={{ marginRight: '0.3rem' }} /> Past History
           </button>
         </div>
       </div>
 
-      <div className="table-wrapper">
+      <div className="table-wrapper animate-slide-up">
         <table className="data-table">
           <thead>
             <tr>
@@ -64,27 +94,28 @@ export default function Appointments() {
               <th>Specialty</th>
               <th>Date & Time</th>
               <th>Status</th>
-              {tab === 'upcoming' && <th>Action</th>}
+              {tab === 'upcoming' && <th style={{ textAlign: 'right' }}>Action</th>}
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan="5" style={{ textAlign: 'center', padding: '2rem' }}>No {tab} appointments</td></tr>
+              <tr><td colSpan="5" style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>No {tab} appointments</td></tr>
             ) : filtered.map(a => (
               <tr key={a.id}>
                 <td><strong>{a.doctor}</strong></td>
                 <td>{a.specialty}</td>
-                <td>{a.date} <span style={{ color: 'var(--muted)' }}>at {a.time}</span></td>
+                <td>{a.date} <span style={{ color: 'var(--text-muted)' }}>at {a.time}</span></td>
                 <td>
                   <span className={`badge ${a.status.toLowerCase()}`}>{a.status}</span>
                 </td>
                 {tab === 'upcoming' && (
-                  <td>
-                    <button 
+                  <td style={{ textAlign: 'right' }}>
+                    <button
+                      className="btn-danger"
                       onClick={() => cancelAppointment(a.id)}
-                      style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: '0.85rem', textDecoration: 'underline' }}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.82rem' }}
                     >
-                      Cancel
+                      <X size={14} /> Cancel
                     </button>
                   </td>
                 )}

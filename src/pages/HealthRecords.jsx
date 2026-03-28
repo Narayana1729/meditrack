@@ -13,7 +13,6 @@ export default function HealthRecords() {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   
-  // Form State
   const [newTitle, setNewTitle] = useState('');
   const [newDoctor, setNewDoctor] = useState('');
   const [newFile, setNewFile] = useState('');
@@ -61,8 +60,6 @@ export default function HealthRecords() {
     const fileExtension = newFile.name?.split('.').pop();
     const fileType = ['jpg', 'png', 'jpeg'].includes(fileExtension?.toLowerCase()) ? 'img' : 'pdf';
     
-    // Simulate real upload or do Supabase Storage upload here
-    // For now we just save the record to the table
     const newRecordObj = {
       type: newTitle,
       date: new Date().toISOString().split('T')[0],
@@ -73,7 +70,6 @@ export default function HealthRecords() {
 
     if (supabase) {
       try {
-        // Mock Storage URL since we don't have bucket setup yet
         const { data, error } = await supabase
           .from('health_records')
           .insert([newRecordObj])
@@ -99,7 +95,7 @@ export default function HealthRecords() {
 
   return (
     <div className="page">
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
         <div>
           <h1 className="page-title">Health Records</h1>
           <p className="page-subtitle">Securely manage your medical history.</p>
@@ -110,9 +106,9 @@ export default function HealthRecords() {
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '3rem' }}>Loading records...</div>
+        <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>Loading records...</div>
       ) : records.length === 0 ? (
-        <div className="empty-state animate-slide-up glass-card">
+        <div className="empty-state animate-slide-up card" style={{ background: 'var(--surface)' }}>
           <FileText size={48} />
           <h2>No records found</h2>
           <p>You haven't uploaded any health records yet.</p>
@@ -134,7 +130,7 @@ export default function HealthRecords() {
             </thead>
             <tbody>
               {records.map((r, i) => (
-                <tr key={r.id} style={{ animation: `fadeIn 0.3s ease ${i * 0.1}s forwards`, opacity: 0 }}>
+                <tr key={r.id} className="animate-fade-in" style={{ animationDelay: `${i * 0.08}s` }}>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 500 }}>
                       {r.file_type === 'pdf' ? <FileText size={18} color="var(--primary)" /> : <FileImage size={18} color="var(--secondary)" />}
@@ -153,9 +149,9 @@ export default function HealthRecords() {
                       <button className="btn-secondary" style={{ padding: '0.4rem', border: 'none', background: 'transparent' }} title="Download">
                         <Download size={18} color="var(--text-muted)" />
                       </button>
-                      <button 
-                        className="btn-danger" 
-                        style={{ padding: '0.4rem', border: 'none', background: 'transparent' }} 
+                      <button
+                        className="btn-danger"
+                        style={{ padding: '0.4rem' }}
                         title="Delete"
                         onClick={() => handleDelete(r.id)}
                       >
@@ -174,50 +170,50 @@ export default function HealthRecords() {
       {isModalOpen && (
         <div className="modal-overlay">
           <div className="modal-content">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-              <h2 style={{ fontSize: '1.5rem', margin: 0 }}>Upload New Record</h2>
-              <button 
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }} 
+            <div className="modal-header">
+              <h2>Upload New Record</h2>
+              <button
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
                 onClick={() => setIsModalOpen(false)}
               >
-                <X size={24} />
+                <X size={22} />
               </button>
             </div>
-            
+
             <form onSubmit={handleUpload}>
               <div className="form-group">
                 <label className="form-label">Document Type / Title</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="e.g. Annual Blood Work" 
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Annual Blood Work"
                   value={newTitle}
                   onChange={e => setNewTitle(e.target.value)}
-                  required 
+                  required
                 />
               </div>
               <div className="form-group">
                 <label className="form-label">Issuing Doctor</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="e.g. Dr. John Doe" 
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Dr. John Doe"
                   value={newDoctor}
                   onChange={e => setNewDoctor(e.target.value)}
-                  required 
+                  required
                 />
               </div>
               <div className="form-group">
                 <label className="form-label">Select File</label>
-                <input 
-                  type="file" 
-                  className="form-input" 
+                <input
+                  type="file"
+                  className="form-input"
                   onChange={e => setNewFile(e.target.files[0])}
-                  required 
+                  required
                 />
                 {newFile && <p style={{ fontSize: '0.85rem', color: 'var(--success)', marginTop: '0.5rem' }}>✓ File selected: {newFile.name}</p>}
               </div>
-              
+
               <div className="modal-actions">
                 <button type="button" className="btn-secondary" onClick={() => setIsModalOpen(false)}>Cancel</button>
                 <button type="submit" className="btn-primary" disabled={isUploading}>
