@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { FileText, TrendingUp, TrendingDown, Minus, Download, Calendar } from 'lucide-react'
 import { supabase } from '../supabaseClient'
+import { useToast } from '../components/Toast'
 
 const fallbackReports = [
   { id: 1, title: 'Blood Sugar Trend', period: 'March 2026', status: 'Ready', category: 'Lab Test', trend: 'stable' },
@@ -30,6 +31,7 @@ const categoryColors = {
 }
 
 export default function Reports() {
+  const { addToast } = useToast()
   const [reports, setReports] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -40,7 +42,6 @@ export default function Reports() {
         setLoading(false)
         return
       }
-      // Try a reports table, fallback to hardcoded
       try {
         const { data, error } = await supabase.from('reports').select('*').order('id', { ascending: true })
         if (error) throw error
@@ -53,6 +54,32 @@ export default function Reports() {
     }
     fetchReports()
   }, [])
+
+  const handleDownload = (report) => {
+    if (report.status !== 'Ready') {
+      addToast('This report is still being processed.', 'info')
+      return
+    }
+
+    if (report.file_url) {
+      window.open(report.file_url, '_blank')
+      addToast(`Downloading ${report.title}...`, 'success')
+    } else {
+      // Generate a text summary as downloadable content
+      const content = `MediTrack Health Report\n${'='.repeat(40)}\n\nTitle: ${report.title}\nPeriod: ${report.period}\nCategory: ${report.category}\nTrend: ${report.trend === 'up' ? 'Improving' : report.trend === 'down' ? 'Needs Attention' : 'Stable'}\nStatus: ${report.status}\n\nGenerated on: ${new Date().toLocaleString()}\n\nNote: This is a summary report. Full detailed reports will be available when connected to your healthcare provider's system.`
+      
+      const blob = new Blob([content], { type: 'text/plain' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${report.title.replace(/\s+/g, '_')}_${report.period.replace(/\s+/g, '_')}.txt`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      addToast(`Downloaded summary for ${report.title}.`, 'success')
+    }
+  }
 
   const readyCount = reports.filter(r => r.status === 'Ready').length
   const processingCount = reports.filter(r => r.status === 'Processing').length
@@ -113,6 +140,7 @@ export default function Reports() {
                 className="btn-primary"
                 disabled={r.status !== 'Ready'}
                 style={{ width: '100%', marginTop: '0.5rem' }}
+                onClick={() => handleDownload(r)}
               >
                 <Download size={16} />
                 {r.status === 'Ready' ? 'Download Report' : 'Processing...'}

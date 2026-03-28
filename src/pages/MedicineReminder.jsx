@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
-import { Pill, Plus, X, Clock } from 'lucide-react'
+import { Pill, Plus, X, Clock, Trash2 } from 'lucide-react'
 import { supabase } from '../supabaseClient'
+import { useToast } from '../components/Toast'
+import ConfirmModal from '../components/ConfirmModal'
 
 const fallbackMeds = [
   { id: 1, name: 'Metformin', dosage: '500mg', frequency: 'Twice a day', time: '8:00 AM, 8:00 PM', taken: false, color: '#4F46E5' },
@@ -11,9 +13,11 @@ const fallbackMeds = [
 const pillColors = ['#4F46E5', '#10B981', '#F59E0B', '#EF4444', '#0EA5E9', '#8B5CF6']
 
 export default function MedicineReminder() {
+  const { addToast } = useToast()
   const [meds, setMeds] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
   const [newName, setNewName] = useState('')
   const [newDosage, setNewDosage] = useState('')
   const [newFrequency, setNewFrequency] = useState('Once a day')
@@ -32,6 +36,7 @@ export default function MedicineReminder() {
         setMeds(data?.length ? data : fallbackMeds)
       } catch (err) {
         console.error('Error fetching medicines:', err.message)
+        addToast('Failed to load medicines. Using offline data.', 'warning')
         setMeds(fallbackMeds)
       } finally {
         setLoading(false)
@@ -49,11 +54,38 @@ export default function MedicineReminder() {
 
     if (supabase) {
       try {
-        await supabase.from('medicines').update({ taken: newTaken }).eq('id', id)
+        const { error } = await supabase.from('medicines').update({ taken: newTaken }).eq('id', id)
+        if (error) throw error
       } catch (err) {
         console.error('Error toggling medicine:', err.message)
+        addToast('Failed to update. Please try again.', 'error')
+        // Revert on failure
+        setMeds(prev => prev.map(m => m.id === id ? { ...m, taken: !newTaken } : m))
       }
     }
+  }
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    const id = deleteTarget
+
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('medicines').delete().eq('id', id)
+        if (error) throw error
+        addToast('Medicine removed.', 'success')
+      } catch (err) {
+        console.error('Error deleting medicine:', err.message)
+        addToast('Failed to delete medicine.', 'error')
+        setDeleteTarget(null)
+        return
+      }
+    } else {
+      addToast('Medicine removed (offline mode).', 'success')
+    }
+
+    setMeds(prev => prev.filter(m => m.id !== id))
+    setDeleteTarget(null)
   }
 
   const handleAdd = async (e) => {
@@ -75,12 +107,15 @@ export default function MedicineReminder() {
         const { data, error } = await supabase.from('medicines').insert([newMed]).select()
         if (error) throw error
         if (data?.[0]) newMed.id = data[0].id
+        addToast(`${newName} added to your medicines.`, 'success')
       } catch (err) {
         console.error('Error adding medicine:', err.message)
+        addToast('Failed to save medicine.', 'error')
         newMed.id = Date.now()
       }
     } else {
       newMed.id = Date.now()
+      addToast(`${newName} added (offline mode).`, 'success')
     }
 
     setMeds(prev => [...prev, newMed])
@@ -134,36 +169,57 @@ export default function MedicineReminder() {
       </div>
 
       {/* Medicine List */}
-      <div className="med-list">
-        {meds.map((med, i) => (
-          <div
-            className={`med-card animate-slide-up ${med.taken ? 'taken' : ''}`}
-            key={med.id}
-            style={{ '--med-accent': med.color || '#4F46E5', animationDelay: `${0.1 + i * 0.06}s` }}
-          >
-            <div style={{ paddingLeft: '0.5rem' }}>
-              <h3>
-                {med.name}
-                {med.dosage && <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: '0.4rem' }}>{med.dosage}</span>}
-              </h3>
-              <p style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <Clock size={13} /> {med.frequency} · {med.time}
-              </p>
-            </div>
-            <button
-              className={`btn-toggle ${med.taken ? 'done' : ''}`}
-              onClick={() => toggle(med.id)}
+      {meds.length === 0 ? (
+        <div className="empty-state animate-slide-up">
+          <Pill size={48} />
+          <h2>No medicines added</h2>
+          <p>Add your daily medications to start tracking.</p>
+          <button className="btn-primary" style={{ marginTop: '1rem' }} onClick={() => setShowModal(true)}>
+            <Plus size={16} /> Add Medicine
+          </button>
+        </div>
+      ) : (
+        <div className="med-list">
+          {meds.map((med, i) => (
+            <div
+              className={`med-card animate-slide-up ${med.taken ? 'taken' : ''}`}
+              key={med.id}
+              style={{ '--med-accent': med.color || '#4F46E5', animationDelay: `${0.1 + i * 0.06}s` }}
             >
-              {med.taken ? '✅ Taken' : '⬜ Mark Taken'}
-            </button>
-          </div>
-        ))}
-      </div>
+              <div style={{ paddingLeft: '0.5rem', flex: 1 }}>
+                <h3>
+                  {med.name}
+                  {med.dosage && <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: '0.4rem' }}>{med.dosage}</span>}
+                </h3>
+                <p style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Clock size={13} /> {med.frequency} · {med.time}
+                </p>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <button
+                  className={`btn-toggle ${med.taken ? 'done' : ''}`}
+                  onClick={() => toggle(med.id)}
+                >
+                  {med.taken ? '✅ Taken' : '⬜ Mark Taken'}
+                </button>
+                <button
+                  className="btn-danger"
+                  style={{ padding: '0.45rem' }}
+                  title="Remove medicine"
+                  onClick={() => setDeleteTarget(med.id)}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Add Medicine Modal */}
       {showModal && (
-        <div className="modal-overlay">
-          <div className="modal-content">
+        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Add Medicine</h2>
               <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setShowModal(false)}>
@@ -199,6 +255,18 @@ export default function MedicineReminder() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Delete Confirmation */}
+      {deleteTarget && (
+        <ConfirmModal
+          title="Remove Medicine"
+          message="Are you sure you want to remove this medicine from your list?"
+          confirmText="Remove"
+          danger
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+        />
       )}
     </div>
   )

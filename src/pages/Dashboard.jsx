@@ -7,6 +7,7 @@ import {
   ArrowRight, CheckCircle2
 } from 'lucide-react'
 import { supabase } from '../supabaseClient'
+import { useUser } from '../context/UserContext'
 
 /* ── Fallback Data ── */
 const fallbackVitals = [
@@ -81,6 +82,7 @@ function getGreeting() {
 function timeAgo(dateStr) {
   const diff = Date.now() - new Date(dateStr).getTime()
   const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'Just now'
   if (mins < 60) return `${mins}m ago`
   const hours = Math.floor(mins / 60)
   if (hours < 24) return `${hours}h ago`
@@ -89,7 +91,9 @@ function timeAgo(dateStr) {
 }
 
 function formatDateBadge(dateStr) {
-  const d = new Date(dateStr)
+  // Use split to avoid timezone issues with date-only strings
+  const parts = dateStr.split('-')
+  const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]))
   return {
     day: d.getDate(),
     month: d.toLocaleString('default', { month: 'short' })
@@ -97,11 +101,13 @@ function formatDateBadge(dateStr) {
 }
 
 export default function Dashboard() {
+  const { user } = useUser()
   const [vitals, setVitals] = useState([])
   const [appointments, setAppointments] = useState([])
   const [medicines, setMedicines] = useState([])
   const [activity, setActivity] = useState([])
   const [loading, setLoading] = useState(true)
+  const [notifications, setNotifications] = useState([])
 
   useEffect(() => {
     async function fetchDashboardData() {
@@ -115,11 +121,12 @@ export default function Dashboard() {
       }
 
       try {
-        const [vitalsRes, apptRes, medsRes, actRes] = await Promise.allSettled([
+        const [vitalsRes, apptRes, medsRes, actRes, notifRes] = await Promise.allSettled([
           supabase.from('vitals').select('*').order('recorded_at', { ascending: false }).limit(6),
-          supabase.from('appointments').select('*').order('date', { ascending: true }).limit(3),
+          supabase.from('appointments').select('*').order('date', { ascending: true }).limit(10),
           supabase.from('medicines').select('*'),
           supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(5),
+          supabase.from('notifications').select('*').eq('read', false),
         ])
 
         setVitals(vitalsRes.status === 'fulfilled' && vitalsRes.value.data?.length ? vitalsRes.value.data : fallbackVitals)
@@ -133,6 +140,10 @@ export default function Dashboard() {
 
         setMedicines(medsRes.status === 'fulfilled' && medsRes.value.data?.length ? medsRes.value.data : fallbackMedicines)
         setActivity(actRes.status === 'fulfilled' && actRes.value.data?.length ? actRes.value.data : fallbackActivity)
+
+        // Dynamic notification count
+        const notifData = notifRes.status === 'fulfilled' && notifRes.value.data ? notifRes.value.data : []
+        setNotifications(notifData)
       } catch (err) {
         console.error('Dashboard fetch error:', err)
         setVitals(fallbackVitals)
@@ -155,14 +166,18 @@ export default function Dashboard() {
     )
   }
 
+  const displayName = user?.name?.split(' ')[0] || 'there'
   const totalMeds = medicines.length
   const takenMeds = medicines.filter(m => m.taken).length
-  const unreadAlerts = 1 // placeholder since notifications are local state
+  const unreadAlerts = notifications.length || 0
+
+  // Count reports dynamically (pending = processing ones)
+  const pendingReports = activity.filter(a => a.action === 'report_ready').length
 
   const statCards = [
     { label: 'Upcoming Appointments', value: appointments.length, icon: Calendar, color: '#4F46E5', bg: 'rgba(79,70,229,0.1)' },
     { label: 'Active Prescriptions', value: totalMeds, icon: Pill, color: '#10B981', bg: 'rgba(16,185,129,0.1)' },
-    { label: 'Pending Reports', value: 2, icon: BarChart3, color: '#F59E0B', bg: 'rgba(245,158,11,0.1)' },
+    { label: 'Meds Taken Today', value: `${takenMeds}/${totalMeds}`, icon: BarChart3, color: '#F59E0B', bg: 'rgba(245,158,11,0.1)' },
     { label: 'Unread Alerts', value: unreadAlerts, icon: Bell, color: '#EF4444', bg: 'rgba(239,68,68,0.1)' },
   ]
 
@@ -170,7 +185,7 @@ export default function Dashboard() {
     <div className="page">
       {/* Greeting */}
       <div className="dashboard-greeting animate-slide-up">
-        <h1>{getGreeting()}, Narayana 👋</h1>
+        <h1>{getGreeting()}, {displayName} 👋</h1>
         <p>Here's your health overview for {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}.</p>
       </div>
 
