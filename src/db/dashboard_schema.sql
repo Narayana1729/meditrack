@@ -43,9 +43,9 @@ CREATE TABLE IF NOT EXISTS public.medicines (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-INSERT INTO public.medicines (name, dosage, taken) VALUES
-('Metformin', '500mg', false),
-('Atorvastatin', '10mg', true);
+INSERT INTO public.medicines (name, dosage, frequency, time, taken, color) VALUES
+('Metformin', '500mg', 'Twice daily', '08:00 AM', false, '#10B981'),
+('Atorvastatin', '10mg', 'Once at night', '09:00 PM', true, '#4F46E5');
 
 -- 4. Activity Log Table
 CREATE TABLE IF NOT EXISTS public.activity_log (
