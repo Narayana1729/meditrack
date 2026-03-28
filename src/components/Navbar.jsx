@@ -4,6 +4,7 @@ import {
   Pill, Bell, BarChart3, User, Sun, Moon 
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useUser } from '../context/UserContext'
 import './Navbar.css'
 
 const navItems = [
@@ -18,6 +19,7 @@ const navItems = [
 ]
 
 export default function Navbar() {
+  const { user } = useUser()
   const [dark, setDark] = useState(() => {
     const saved = localStorage.getItem('meditrack-theme')
     return saved === 'dark'
@@ -27,6 +29,9 @@ export default function Navbar() {
     document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
     localStorage.setItem('meditrack-theme', dark ? 'dark' : 'light')
   }, [dark])
+
+  const displayName = user?.name?.split(' ')[0] || 'User'
+  const avatarInitial = user?.name?.[0]?.toUpperCase() || 'U'
 
   return (
     <nav className="navbar">
@@ -60,9 +65,9 @@ export default function Navbar() {
         </button>
 
         <div className="navbar-user">
-          <div className="navbar-user-avatar">S</div>
+          <div className="navbar-user-avatar">{avatarInitial}</div>
           <div className="navbar-user-info">
-            <span className="navbar-user-name">Narayana</span>
+            <span className="navbar-user-name">{displayName}</span>
             <span className="navbar-user-role">Patient</span>
           </div>
         </div>

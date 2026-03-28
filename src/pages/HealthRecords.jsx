@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { FileText, FileImage, Download, Trash2, Plus, X } from 'lucide-react';
 import { supabase } from '../supabaseClient';
+import { useToast } from '../components/Toast';
+import ConfirmModal from '../components/ConfirmModal';
 
 const fallbackRecords = [
   { id: 1, type: 'Blood Test', date: '2026-03-15', doctor: 'Dr. Priya Sharma', file: 'blood_test_march.pdf', file_type: 'pdf' },
@@ -9,13 +11,15 @@ const fallbackRecords = [
 ];
 
 export default function HealthRecords() {
+  const { addToast } = useToast();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   
   const [newTitle, setNewTitle] = useState('');
   const [newDoctor, setNewDoctor] = useState('');
-  const [newFile, setNewFile] = useState('');
+  const [newFile, setNewFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
@@ -29,9 +33,10 @@ export default function HealthRecords() {
       try {
         const { data, error } = await supabase.from('health_records').select('*').order('date', { ascending: false });
         if (error) throw error;
-        setRecords(data || fallbackRecords);
+        setRecords(data?.length ? data : fallbackRecords);
       } catch (err) {
         console.error('Error fetching records:', err.message);
+        addToast('Failed to load records. Using offline data.', 'warning');
         setRecords(fallbackRecords);
       } finally {
         setLoading(false);
@@ -40,16 +45,27 @@ export default function HealthRecords() {
     fetchRecords();
   }, []);
 
-  const handleDelete = async (id) => {
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    const id = deleteTarget;
+
     if (supabase) {
       try {
         const { error } = await supabase.from('health_records').delete().eq('id', id);
         if (error) throw error;
+        addToast('Record deleted successfully.', 'success');
       } catch (err) {
         console.error('Error deleting record:', err.message);
+        addToast('Failed to delete record.', 'error');
+        setDeleteTarget(null);
+        return;
       }
+    } else {
+      addToast('Record deleted (offline mode).', 'success');
     }
-    setRecords(records.filter(r => r.id !== id));
+
+    setRecords(prev => prev.filter(r => r.id !== id));
+    setDeleteTarget(null);
   };
 
   const handleUpload = async (e) => {
@@ -58,14 +74,40 @@ export default function HealthRecords() {
 
     setIsUploading(true);
     const fileExtension = newFile.name?.split('.').pop();
-    const fileType = ['jpg', 'png', 'jpeg'].includes(fileExtension?.toLowerCase()) ? 'img' : 'pdf';
+    const fileType = ['jpg', 'png', 'jpeg', 'gif', 'webp'].includes(fileExtension?.toLowerCase()) ? 'img' : 'pdf';
     
+    let storedFileName = newFile.name || 'document.pdf';
+    let fileUrl = null;
+
+    // Attempt actual file upload to Supabase Storage
+    if (supabase) {
+      try {
+        const safeName = `${Date.now()}_${newFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('health-records')
+          .upload(safeName, newFile);
+
+        if (uploadError) {
+          // Storage bucket may not exist — fall back to just metadata
+          console.warn('File upload skipped (storage bucket may not exist):', uploadError.message);
+          addToast('File saved as metadata only. Set up Supabase Storage for full uploads.', 'info');
+        } else {
+          // Get public URL
+          const { data: urlData } = supabase.storage.from('health-records').getPublicUrl(safeName);
+          fileUrl = urlData?.publicUrl || null;
+          storedFileName = safeName;
+        }
+      } catch (err) {
+        console.warn('Storage upload failed:', err.message);
+      }
+    }
+
     const newRecordObj = {
       type: newTitle,
       date: new Date().toISOString().split('T')[0],
       doctor: newDoctor,
-      file: newFile.name || 'document.pdf',
-      file_type: fileType
+      file: fileUrl || storedFileName,
+      file_type: fileType,
     };
 
     if (supabase) {
@@ -77,20 +119,31 @@ export default function HealthRecords() {
         
         if (error) throw error;
         if (data && data.length > 0) newRecordObj.id = data[0].id;
+        addToast('Record uploaded successfully!', 'success');
       } catch (err) {
-        console.error('Error uploading record to Supabase:', err.message);
+        console.error('Error uploading record:', err.message);
+        addToast('Failed to save record to database.', 'error');
         newRecordObj.id = Date.now();
       }
     } else {
       newRecordObj.id = Date.now();
+      addToast('Record saved (offline mode).', 'success');
     }
 
-    setRecords([newRecordObj, ...records]);
+    setRecords(prev => [newRecordObj, ...prev]);
     setNewTitle('');
     setNewDoctor('');
-    setNewFile('');
+    setNewFile(null);
     setIsUploading(false);
     setIsModalOpen(false);
+  };
+
+  const handleDownload = (record) => {
+    if (record.file?.startsWith('http')) {
+      window.open(record.file, '_blank');
+    } else {
+      addToast('Download not available. File was saved as metadata only.', 'info');
+    }
   };
 
   return (
@@ -140,20 +193,29 @@ export default function HealthRecords() {
                   <td style={{ color: 'var(--text-muted)' }}>{new Date(r.date).toLocaleDateString()}</td>
                   <td>{r.doctor}</td>
                   <td>
-                    <a href="#" className="file-link" onClick={(e) => e.preventDefault()}>
-                      {r.file}
-                    </a>
+                    {r.file?.startsWith('http') ? (
+                      <a href={r.file} target="_blank" rel="noopener noreferrer" className="file-link">
+                        {r.file.split('/').pop()}
+                      </a>
+                    ) : (
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{r.file}</span>
+                    )}
                   </td>
                   <td style={{ textAlign: 'right' }}>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                      <button className="btn-secondary" style={{ padding: '0.4rem', border: 'none', background: 'transparent' }} title="Download">
+                      <button
+                        className="btn-secondary"
+                        style={{ padding: '0.4rem', border: 'none', background: 'transparent' }}
+                        title="Download"
+                        onClick={() => handleDownload(r)}
+                      >
                         <Download size={18} color="var(--text-muted)" />
                       </button>
                       <button
                         className="btn-danger"
                         style={{ padding: '0.4rem' }}
                         title="Delete"
-                        onClick={() => handleDelete(r.id)}
+                        onClick={() => setDeleteTarget(r.id)}
                       >
                         <Trash2 size={18} />
                       </button>
@@ -168,8 +230,8 @@ export default function HealthRecords() {
 
       {/* Upload Modal */}
       {isModalOpen && (
-        <div className="modal-overlay">
-          <div className="modal-content">
+        <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Upload New Record</h2>
               <button
@@ -197,7 +259,7 @@ export default function HealthRecords() {
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="e.g. Dr. John Doe"
+                  placeholder="e.g. Dr. Priya Sharma"
                   value={newDoctor}
                   onChange={e => setNewDoctor(e.target.value)}
                   required
@@ -208,10 +270,11 @@ export default function HealthRecords() {
                 <input
                   type="file"
                   className="form-input"
-                  onChange={e => setNewFile(e.target.files[0])}
+                  accept=".pdf,.jpg,.jpeg,.png,.gif,.webp"
+                  onChange={e => setNewFile(e.target.files?.[0] || null)}
                   required
                 />
-                {newFile && <p style={{ fontSize: '0.85rem', color: 'var(--success)', marginTop: '0.5rem' }}>✓ File selected: {newFile.name}</p>}
+                {newFile && <p style={{ fontSize: '0.85rem', color: 'var(--success)', marginTop: '0.5rem' }}>✓ File selected: {newFile.name} ({(newFile.size / 1024).toFixed(1)} KB)</p>}
               </div>
 
               <div className="modal-actions">
@@ -223,6 +286,18 @@ export default function HealthRecords() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <ConfirmModal
+          title="Delete Record"
+          message="Are you sure you want to delete this health record? This action cannot be undone."
+          confirmText="Delete"
+          danger
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+        />
       )}
     </div>
   );
